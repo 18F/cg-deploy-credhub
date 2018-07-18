@@ -1,0 +1,41 @@
+## CredHub secrets schema
+
+Common secrets store in CredHub for cloud.gov
+
+### Design
+1. All secrets are stored in a single, HA, CredHub bosh deployment deployed by `master-bosh`.
+1. Secrets are namespaced by `/<DIRECTOR>/<DEPLOYMENT>/` to [integrate with bosh config server](https://github.com/cloudfoundry-incubator/credhub/blob/master/docs/bosh-config-server.md).
+    1. `common` and `master-bosh/masterbosh` are _manually_ populated to bootstrap `master-bosh` director.
+    1. Manifests deployed by a bosh director should interpolate with `((secret)))` for things which belong to that deployment. Anything pulled in from another deployment must use `((/absolute/path/to/secret))`
+1. Secrets are either `user`, `value`, `certificate`, `rsa`, or `json` [types](https://github.com/cloudfoundry-incubator/credhub/blob/master/docs/credential-types.md).
+    1. Attributes are referenced as `((secret.attribute))`: ex `((/common/ca_cert.certificate))`
+    1. `json` type should be used for complex datastructures that don't change frequently (saml certs and metadata).
+     1. cross-deployment dependencies are noted with spruce `(( grab absolute.path ))` syntax. In practice these should actually be handled with `/absolute/paths` in manifests/pipelines as above.
+1. Concourse uses the same common CredHub for [credential management](https://concourse-ci.org/creds.html#credhub)
+    1. This will require Concourse to accept absolute paths for interpolation in pipelines (It might not currently support this).
+1. Existing secrets should be _manually_ loaded into CredHub to initialize the store, and rotation performed _manually_ until we can test dependencies in automatically generated credentials (common ca signed certs, public_key and cert with same private_key, etc.)
+
+### Manifest changes
+#### tooling-bosh
+1. `cg-deploy-bosh` will need to name directors uniquely in [`cg-deployment.yml`](https://github.com/18F/cg-deploy-bosh/blob/master/bosh-deployment.yml#L174)
+    1. bosh (director) certificates will probably need to replaced so names on certs match the unique director names.
+1. Remaining `cg-deploy-bosh` merged secrets + yaml in `*-bosh-*.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-concourse` merged secrets + yaml in `concourse-tooling-*.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-powerdns` merged secrets + yaml in `*-pdns*.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. `cg-deploy-prometheus` secrets accessed as varsfile `*-prometheus.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-nessus-manager` merged secrets + yaml in `nessus-manager.*.yml` will need to migrate to CredHub, terraform, or public manifests.
+#### development, staging, and production bosh
+1. `cg-deploy-cf` secrets accessed as varsfile `secrets.yml` will need to migrate to CredHub, terraform, or public manifests.
+    1. Most of these are setup in `cf-deployment` and various opsfiles in `cg-deploy-cf/bosh/opsfiles`. We should maybe refactor the portions we control to use `user` types in credhub instead of direct access to passphrase/client secret in a `password` type.
+    1. Deployments dependent on uaa client and users from cf-* are setup to expect `user`s.
+1. `cg-deploy-elasticache-broker` secrets accessed as varsfile `secrets.yml` will need to migrade to CredHub.
+1. Remaining `cg-deploy-kubernetes` merged secrets + yaml in `*-kubernetes.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-logsearch` merged secrets + yaml in `logsearch-*.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-admin-ui` merged secrets + yaml in `admin-ui.*.yml` will need to migrate to CredHub, terraform, or public manifests.
+1. Remaining `cg-deploy-shibboleth` merged secrets + yaml in `*-shibboleth.yml` will need to migrate to CredHub, terraform, or public manifests.
+
+### TODO
+1. Add secrets which only reside in Concourse / terraform (not bosh deployments)
+1. Validate Concourse pipelines can access CredHub by absolute paths
+1. Work out _precedence_ & special cases for rotation. These are just cross-deployment _dependencies_.
+
